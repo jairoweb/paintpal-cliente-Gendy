@@ -1,14 +1,15 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { Loader2, Paintbrush } from "lucide-react";
 
-const Index = () => {
+export default function Index() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
+    <div className="min-h-screen flex items-center justify-center gradient-primary">
+      <div className="text-white text-center">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 gradient-accent">
+          <Paintbrush className="w-8 h-8 text-white" />
+        </div>
+        <h1 className="text-2xl font-bold mb-2">PintorPro</h1>
+        <Loader2 className="w-6 h-6 animate-spin mx-auto opacity-70" />
       </div>
     </div>
   );
-};
-
-export default Index;
+}
