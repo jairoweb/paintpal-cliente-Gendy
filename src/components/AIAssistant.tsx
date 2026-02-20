@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, X, Send, Loader2, Copy, Check, Sparkles, ChevronDown } from "lucide-react";
+import { Bot, X, Send, Loader2, Copy, Check, Sparkles, Mic, MicOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,26 @@ import { supabase } from "@/integrations/supabase/client";
 const AI_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/pintor-ai`;
 
 type Msg = { role: "user" | "assistant"; content: string };
+
+// Extend window type for cross-browser Speech Recognition
+interface ISpeechRecognition extends EventTarget {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start(): void;
+  stop(): void;
+  onstart: ((this: ISpeechRecognition, ev: Event) => void) | null;
+  onend: ((this: ISpeechRecognition, ev: Event) => void) | null;
+  onresult: ((this: ISpeechRecognition, ev: SpeechRecognitionEvent) => void) | null;
+  onerror: ((this: ISpeechRecognition, ev: SpeechRecognitionErrorEvent) => void) | null;
+}
+type SpeechRecognitionConstructor = new () => ISpeechRecognition;
+declare global {
+  interface Window {
+    SpeechRecognition: SpeechRecognitionConstructor;
+    webkitSpeechRecognition: SpeechRecognitionConstructor;
+  }
+}
 
 const QUICK_PROMPTS = [
   { label: "📧 Email de presupuesto", prompt: "Escríbeme un email profesional para enviar a un cliente con el presupuesto de un trabajo de pintura interior de un piso de 80m²." },
@@ -95,19 +115,86 @@ export default function AIAssistant() {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([
-    { role: "assistant", content: "¡Hola! Soy **Pablo**, tu asistente de IA 🎨\n\nPuedo ayudarte a **redactar emails para clientes**, escribir **presupuestos**, dar **consejos de precios** y mucho más.\n\nUsa los accesos rápidos o escríbeme lo que necesites." },
+    { role: "assistant", content: "¡Hola! Soy **Pablo**, tu asistente de IA 🎨\n\nPuedo ayudarte a **redactar emails para clientes**, escribir **presupuestos**, dar **consejos de precios** y mucho más.\n\nUsa los accesos rápidos, escríbeme o **háblame con el micrófono** 🎙️" },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [micSupported, setMicSupported] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<ISpeechRecognition | null>(null);
+
+  // Check browser support for speech recognition
+  useEffect(() => {
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    setMicSupported(!!SpeechRecognitionAPI);
+  }, []);
 
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, open]);
 
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setListening(false);
+  }, []);
+
+  const startListening = useCallback(() => {
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) {
+      toast({ title: "No compatible", description: "Tu navegador no soporta reconocimiento de voz.", variant: "destructive" });
+      return;
+    }
+
+    const recognition = new SpeechRecognitionAPI();
+    recognition.lang = "es-ES";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => setListening(true);
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setInput(transcript);
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+      // Auto-focus textarea after speaking
+      setTimeout(() => textareaRef.current?.focus(), 100);
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      setListening(false);
+      recognitionRef.current = null;
+      if (event.error !== "aborted") {
+        toast({ title: "Error de micrófono", description: "No se pudo acceder al micrófono.", variant: "destructive" });
+      }
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  }, [toast]);
+
+  const toggleMic = useCallback(() => {
+    if (listening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  }, [listening, startListening, stopListening]);
+
   const sendMessage = async (text: string) => {
     if (!text.trim() || loading) return;
+    if (listening) stopListening();
     const userMsg: Msg = { role: "user", content: text };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
@@ -185,11 +272,11 @@ export default function AIAssistant() {
                 <Bot className="w-4 h-4 text-white" />
               </div>
               <div>
-                <p className="text-white font-semibold text-sm leading-none">Pablo IA</p>
-                <p className="text-blue-300 text-xs mt-0.5">Tu asistente personal</p>
+                <p className="text-primary-foreground font-semibold text-sm leading-none">Pablo IA</p>
+                <p className="text-primary-foreground/60 text-xs mt-0.5">Tu asistente personal</p>
               </div>
             </div>
-            <button onClick={() => setOpen(false)} className="text-blue-200 hover:text-white transition-colors p-1">
+            <button onClick={() => setOpen(false)} className="text-primary-foreground/60 hover:text-primary-foreground transition-colors p-1">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -202,7 +289,7 @@ export default function AIAssistant() {
                   <div className={cn(
                     "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
                     msg.role === "user"
-                      ? "gradient-primary text-white rounded-br-sm"
+                      ? "gradient-primary text-primary-foreground rounded-br-sm"
                       : "bg-muted text-foreground rounded-bl-sm"
                   )}>
                     {renderContent(msg.content)}
@@ -240,15 +327,42 @@ export default function AIAssistant() {
 
           {/* Input */}
           <div className="p-3 border-t border-border flex gap-2 items-end flex-shrink-0">
-            <Textarea
-              ref={textareaRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKey}
-              placeholder="Escríbeme lo que necesitas..."
-              className="resize-none min-h-[40px] max-h-[100px] text-sm"
-              rows={1}
-            />
+            <div className="relative flex-1">
+              <Textarea
+                ref={textareaRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKey}
+                placeholder={listening ? "🎙️ Escuchando... habla ahora" : "Escríbeme o usa el micrófono..."}
+                className={cn(
+                  "resize-none min-h-[40px] max-h-[100px] text-sm pr-2 transition-all",
+                  listening && "border-destructive ring-1 ring-destructive/50 bg-destructive/5"
+                )}
+                rows={1}
+              />
+              {listening && (
+                <span className="absolute right-2 top-2 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive" />
+                </span>
+              )}
+            </div>
+
+            {/* Mic button */}
+            {micSupported && (
+              <Button
+                size="icon"
+                variant={listening ? "destructive" : "outline"}
+                onClick={toggleMic}
+                disabled={loading}
+                className="flex-shrink-0 h-10 w-10"
+                title={listening ? "Parar micrófono" : "Hablar"}
+              >
+                {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </Button>
+            )}
+
+            {/* Send button */}
             <Button
               size="icon"
               onClick={() => sendMessage(input)}
