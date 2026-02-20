@@ -1,4 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
+import AIAssistant from "@/components/AIAssistant";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -131,6 +132,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="md:hidden h-14" />
         {children}
       </main>
+
+      {/* AI Assistant Floating Button */}
+      <AIAssistant />
     </div>
   );
 }
+

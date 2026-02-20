@@ -1,0 +1,265 @@
+import { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Bot, X, Send, Loader2, Copy, Check, Sparkles, ChevronDown } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+
+const AI_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/pintor-ai`;
+
+type Msg = { role: "user" | "assistant"; content: string };
+
+const QUICK_PROMPTS = [
+  { label: "📧 Email de presupuesto", prompt: "Escríbeme un email profesional para enviar a un cliente con el presupuesto de un trabajo de pintura interior de un piso de 80m²." },
+  { label: "💶 Solicitar cobro", prompt: "Redacta un email amable pero firme para pedirle a un cliente que lleva 2 semanas sin pagar el trabajo terminado." },
+  { label: "📋 Confirmar cita", prompt: "Escribe un mensaje corto para confirmarle a un cliente la cita de presupuesto para mañana a las 10h." },
+  { label: "🔨 Inicio de obra", prompt: "Redacta un mensaje para avisarle a un cliente que empezamos su obra mañana a las 8h de la mañana." },
+  { label: "✅ Fin de trabajo", prompt: "Escribe un mensaje profesional para comunicarle a un cliente que hemos terminado el trabajo y puede venir a verlo." },
+  { label: "💡 Consejo precio", prompt: "¿Cómo calculo bien el precio de pintar un piso completo de 100m²? ¿Qué debo incluir?" },
+];
+
+async function streamChat(messages: Msg[], onDelta: (t: string) => void, onDone: () => void) {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+
+  const resp = await fetch(AI_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ messages }),
+  });
+
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.error || "Error al conectar con la IA");
+  }
+
+  if (!resp.body) throw new Error("Sin respuesta del servidor");
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let done = false;
+
+  while (!done) {
+    const { done: rdone, value } = await reader.read();
+    if (rdone) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) !== -1) {
+      let line = buffer.slice(0, nl);
+      buffer = buffer.slice(nl + 1);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      if (line.startsWith(":") || line.trim() === "") continue;
+      if (!line.startsWith("data: ")) continue;
+      const json = line.slice(6).trim();
+      if (json === "[DONE]") { done = true; break; }
+      try {
+        const parsed = JSON.parse(json);
+        const content = parsed.choices?.[0]?.delta?.content;
+        if (content) onDelta(content);
+      } catch {
+        buffer = line + "\n" + buffer;
+        break;
+      }
+    }
+  }
+
+  onDone();
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <button
+      onClick={copy}
+      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1.5 opacity-70 hover:opacity-100 transition-opacity"
+    >
+      {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+      {copied ? "¡Copiado!" : "Copiar"}
+    </button>
+  );
+}
+
+export default function AIAssistant() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<Msg[]>([
+    { role: "assistant", content: "¡Hola! Soy **Pablo**, tu asistente de IA 🎨\n\nPuedo ayudarte a **redactar emails para clientes**, escribir **presupuestos**, dar **consejos de precios** y mucho más.\n\nUsa los accesos rápidos o escríbeme lo que necesites." },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, open]);
+
+  const sendMessage = async (text: string) => {
+    if (!text.trim() || loading) return;
+    const userMsg: Msg = { role: "user", content: text };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setInput("");
+    setLoading(true);
+
+    let accumulated = "";
+    try {
+      await streamChat(
+        newMessages,
+        (chunk) => {
+          accumulated += chunk;
+          setMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant") {
+              return prev.map((m, i) => i === prev.length - 1 ? { ...m, content: accumulated } : m);
+            }
+            return [...prev, { role: "assistant", content: accumulated }];
+          });
+        },
+        () => setLoading(false)
+      );
+    } catch (err: any) {
+      setLoading(false);
+      toast({ title: "Error de IA", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(input);
+    }
+  };
+
+  // Simple markdown-like rendering
+  const renderContent = (content: string) => {
+    const lines = content.split("\n");
+    return lines.map((line, i) => {
+      const formatted = line
+        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*(.*?)\*/g, "<em>$1</em>")
+        .replace(/`(.*?)`/g, "<code class='bg-muted px-1 rounded text-xs font-mono'>$1</code>");
+      return (
+        <span key={i}>
+          <span dangerouslySetInnerHTML={{ __html: formatted }} />
+          {i < lines.length - 1 && <br />}
+        </span>
+      );
+    });
+  };
+
+  return (
+    <>
+      {/* Floating Button */}
+      {!open && (
+        <button
+          onClick={() => setOpen(true)}
+          className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-elevated flex items-center justify-center transition-transform hover:scale-110 gradient-accent"
+          title="Abrir asistente IA"
+        >
+          <Sparkles className="w-6 h-6 text-white" />
+        </button>
+      )}
+
+      {/* Chat Panel */}
+      {open && (
+        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-w-[calc(100vw-24px)] flex flex-col rounded-2xl shadow-elevated overflow-hidden bg-card border border-border"
+          style={{ height: "560px", maxHeight: "calc(100vh - 80px)" }}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 gradient-primary flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full gradient-accent flex items-center justify-center">
+                <Bot className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <p className="text-white font-semibold text-sm leading-none">Pablo IA</p>
+                <p className="text-blue-300 text-xs mt-0.5">Tu asistente personal</p>
+              </div>
+            </div>
+            <button onClick={() => setOpen(false)} className="text-blue-200 hover:text-white transition-colors p-1">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Messages */}
+          <ScrollArea className="flex-1 px-4 py-3">
+            <div className="space-y-4">
+              {messages.map((msg, i) => (
+                <div key={i} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+                  <div className={cn(
+                    "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+                    msg.role === "user"
+                      ? "gradient-primary text-white rounded-br-sm"
+                      : "bg-muted text-foreground rounded-bl-sm"
+                  )}>
+                    {renderContent(msg.content)}
+                    {msg.role === "assistant" && msg.content.length > 50 && (
+                      <CopyButton text={msg.content} />
+                    )}
+                  </div>
+                </div>
+              ))}
+              {loading && (
+                <div className="flex justify-start">
+                  <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Pablo está escribiendo...</span>
+                  </div>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+          </ScrollArea>
+
+          {/* Quick prompts */}
+          <div className="px-3 py-2 flex gap-1.5 overflow-x-auto scrollbar-hide flex-shrink-0 border-t border-border">
+            {QUICK_PROMPTS.map(({ label, prompt }) => (
+              <button
+                key={label}
+                onClick={() => sendMessage(prompt)}
+                disabled={loading}
+                className="flex-shrink-0 text-xs px-3 py-1.5 rounded-full bg-secondary text-secondary-foreground hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Input */}
+          <div className="p-3 border-t border-border flex gap-2 items-end flex-shrink-0">
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder="Escríbeme lo que necesitas..."
+              className="resize-none min-h-[40px] max-h-[100px] text-sm"
+              rows={1}
+            />
+            <Button
+              size="icon"
+              onClick={() => sendMessage(input)}
+              disabled={loading || !input.trim()}
+              className="flex-shrink-0 h-10 w-10"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

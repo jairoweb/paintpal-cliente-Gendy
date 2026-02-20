@@ -1,0 +1,86 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+const SYSTEM_PROMPT = `Eres el asistente personal de IA de un pintor profesional autónomo en España. Tu nombre es "Pablo", el asistente de PintorPro.
+
+Tu misión es ayudarle en su trabajo diario:
+- Redactar emails profesionales para clientes (presupuestos, confirmaciones de cita, avisos de inicio/fin de obra, solicitudes de pago)
+- Escribir presupuestos detallados y profesionales
+- Redactar notas o descripciones de trabajos
+- Dar consejos sobre precios, materiales y técnicas de pintura
+- Ayudar a gestionar su negocio (cómo tratar clientes difíciles, cómo cobrar, etc.)
+- Responder preguntas generales sobre pintura profesional
+
+IMPORTANTE:
+- Habla siempre en español, con un tono cercano y profesional
+- Cuando redactes emails o textos formales, hazlos listos para copiar y pegar directamente
+- Si el usuario te pide un email para un cliente específico, genera uno completo y profesional
+- Cuando redactes presupuestos, incluye partidas claras con materiales y mano de obra
+- Sé conciso pero completo
+- Si te piden algo que no es de tu ámbito, redirige amablemente a temas del negocio de pintura`;
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const { messages } = await req.json();
+
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
+      throw new Error("LOVABLE_API_KEY no configurado");
+    }
+
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...messages,
+        ],
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({ error: "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ error: "Se han agotado los créditos de IA. Ve a Configuración → Uso para añadir más." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const text = await response.text();
+      console.error("AI gateway error:", response.status, text);
+      return new Response(
+        JSON.stringify({ error: "Error del servicio de IA" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    return new Response(response.body, {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+    });
+  } catch (err) {
+    console.error("pintor-ai error:", err);
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : "Error desconocido" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
