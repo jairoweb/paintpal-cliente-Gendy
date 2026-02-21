@@ -55,12 +55,10 @@ export default function Photos() {
 
     const { error: uploadError } = await supabase.storage.from("work-photos").upload(path, file);
     if (uploadError) {
-      toast({ title: "Error al subir foto", description: uploadError.message, variant: "destructive" });
+      toast({ title: "Error al subir foto", description: "No se pudo subir la foto. Inténtalo de nuevo.", variant: "destructive" });
       setUploading(false);
       return;
     }
-
-    const { data: { publicUrl } } = supabase.storage.from("work-photos").getPublicUrl(path);
 
     const { error: dbError } = await supabase.from("photos").insert({
       user_id: user!.id,
@@ -71,7 +69,7 @@ export default function Photos() {
     });
 
     if (dbError) {
-      toast({ title: "Error al guardar foto", description: dbError.message, variant: "destructive" });
+      toast({ title: "Error al guardar foto", description: "No se pudo guardar la foto. Inténtalo de nuevo.", variant: "destructive" });
     } else {
       toast({ title: "Foto subida ✓" });
       loadAll();
@@ -80,10 +78,10 @@ export default function Photos() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const getPhotoUrl = (url: string) => {
-    const { data } = supabase.storage.from("work-photos").getPublicUrl(url);
-    // For private buckets, use signed URL instead
-    return url.startsWith("http") ? url : data.publicUrl;
+  const getPhotoUrl = async (url: string) => {
+    if (url.startsWith("http")) return url;
+    const { data } = await supabase.storage.from("work-photos").createSignedUrl(url, 3600);
+    return data?.signedUrl || "";
   };
 
   const getSignedUrl = async (path: string) => {

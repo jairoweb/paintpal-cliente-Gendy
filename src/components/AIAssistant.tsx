@@ -6,6 +6,7 @@ import { Bot, X, Send, Loader2, Copy, Check, Sparkles, Mic, MicOff } from "lucid
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
+import DOMPurify from "dompurify";
 
 const AI_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/pintor-ai`;
 
@@ -238,9 +239,10 @@ export default function AIAssistant() {
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
         .replace(/\*(.*?)\*/g, "<em>$1</em>")
         .replace(/`(.*?)`/g, "<code class='bg-muted px-1 rounded text-xs font-mono'>$1</code>");
+      const sanitized = DOMPurify.sanitize(formatted, { ALLOWED_TAGS: ['strong', 'em', 'code'], ALLOWED_ATTR: ['class'] });
       return (
         <span key={i}>
-          <span dangerouslySetInnerHTML={{ __html: formatted }} />
+          <span dangerouslySetInnerHTML={{ __html: sanitized }} />
           {i < lines.length - 1 && <br />}
         </span>
       );
