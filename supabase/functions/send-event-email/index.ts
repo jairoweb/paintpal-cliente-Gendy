@@ -1,10 +1,21 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+// Simple HTML entity escaping to prevent injection in email templates
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -12,12 +23,48 @@ serve(async (req) => {
   }
 
   try {
+    // Authenticate user
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "No autorizado" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await supabaseClient.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(
+        JSON.stringify({ error: "No autorizado" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const { to, eventType, emoji, clientName, address, dateStr, description } = await req.json();
 
     const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
     if (!RESEND_API_KEY) {
-      throw new Error("RESEND_API_KEY no configurado");
+      console.error("RESEND_API_KEY no configurado");
+      return new Response(
+        JSON.stringify({ error: "Error de configuración del servidor" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
+
+    // Sanitize all user-provided values before inserting into HTML
+    const safeEmoji = escapeHtml(emoji || "");
+    const safeEventType = escapeHtml(eventType || "");
+    const safeClientName = escapeHtml(clientName || "");
+    const safeAddress = escapeHtml(address || "");
+    const safeDateStr = escapeHtml(dateStr || "");
+    const safeDescription = escapeHtml(description || "");
 
     const htmlBody = `
 <!DOCTYPE html>
@@ -47,25 +94,25 @@ serve(async (req) => {
       <p>Tu asistente personal de trabajo</p>
     </div>
     <div class="body">
-      <div class="badge">${emoji} ${eventType}</div>
+      <div class="badge">${safeEmoji} ${safeEventType}</div>
       <div class="field">
         <div class="field-label">Cliente</div>
-        <div class="field-value">${clientName}</div>
+        <div class="field-value">${safeClientName}</div>
       </div>
-      ${address !== "Sin dirección" ? `
+      ${safeAddress !== "Sin dirección" ? `
       <div class="field">
         <div class="field-label">📍 Dirección de la obra</div>
-        <div class="field-value">${address}</div>
+        <div class="field-value">${safeAddress}</div>
       </div>` : ""}
       <div class="field">
         <div class="field-label">📅 Fecha y hora</div>
-        <div class="field-value">${dateStr}</div>
+        <div class="field-value">${safeDateStr}</div>
       </div>
-      ${description ? `
+      ${safeDescription ? `
       <hr>
       <div class="field">
         <div class="field-label">📝 Notas</div>
-        <div class="field-value">${description}</div>
+        <div class="field-value">${safeDescription}</div>
       </div>` : ""}
     </div>
     <div class="footer">
@@ -85,7 +132,7 @@ serve(async (req) => {
       body: JSON.stringify({
         from: "PintorPro <onboarding@resend.dev>",
         to: [to],
-        subject: `${emoji} ${eventType} — ${clientName} | ${dateStr}`,
+        subject: `${safeEmoji} ${safeEventType} — ${safeClientName} | ${safeDateStr}`,
         html: htmlBody,
       }),
     });
@@ -93,7 +140,11 @@ serve(async (req) => {
     const data = await res.json();
 
     if (!res.ok) {
-      throw new Error(`Resend error [${res.status}]: ${JSON.stringify(data)}`);
+      console.error("Resend error:", res.status, JSON.stringify(data));
+      return new Response(
+        JSON.stringify({ error: "Error al enviar el email. Inténtalo de nuevo." }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(JSON.stringify({ success: true, id: data.id }), {
@@ -101,7 +152,7 @@ serve(async (req) => {
     });
   } catch (err: any) {
     console.error("Error sending email:", err);
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: "Error al enviar el email. Inténtalo de nuevo." }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

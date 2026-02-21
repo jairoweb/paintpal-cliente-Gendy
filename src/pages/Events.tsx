@@ -69,7 +69,7 @@ export default function Events() {
     const { data: newEvent, error } = await supabase.from("events").insert(payload).select("*, clients(name, job_address)").single();
 
     if (error) {
-      toast({ title: "Error al guardar", description: error.message, variant: "destructive" });
+      toast({ title: "Error al guardar", description: "No se pudo guardar el evento. Inténtalo de nuevo.", variant: "destructive" });
     } else {
       toast({ title: "Evento creado ✓" });
       setDialogOpen(false);
@@ -112,7 +112,7 @@ export default function Events() {
       setEvents(prev => prev.map(e => e.id === event.id ? { ...e, email_sent: true } : e));
       toast({ title: "📧 Email enviado a tu correo" });
     } catch (err: any) {
-      toast({ title: "No se pudo enviar el email", description: err.message, variant: "destructive" });
+      toast({ title: "No se pudo enviar el email", description: "Hubo un problema. Inténtalo de nuevo.", variant: "destructive" });
     }
     setSending(null);
   };

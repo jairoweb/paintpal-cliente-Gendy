@@ -70,7 +70,7 @@ export default function Clients() {
       : await supabase.from("clients").insert(payload);
 
     if (error) {
-      toast({ title: "Error al guardar", description: error.message, variant: "destructive" });
+      toast({ title: "Error al guardar", description: "No se pudo guardar el cliente. Inténtalo de nuevo.", variant: "destructive" });
     } else {
       toast({ title: editId ? "Cliente actualizado" : "Cliente añadido ✓" });
       setDialogOpen(false);
