@@ -76,9 +76,11 @@ export default function Events() {
       setForm(emptyForm);
       loadAll();
 
-      // Enviar email automáticamente
       if (newEvent) {
+        // Enviar email automáticamente
         sendEventEmail(newEvent);
+        // Sincronizar con Google Calendar
+        syncToGoogleCalendar(newEvent);
       }
     }
     setSaving(false);
@@ -115,6 +117,41 @@ export default function Events() {
       toast({ title: "No se pudo enviar el email", description: "Hubo un problema. Inténtalo de nuevo.", variant: "destructive" });
     }
     setSending(null);
+  };
+
+  const syncToGoogleCalendar = async (event: any) => {
+    try {
+      const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
+      const clientName = event.clients?.name || "Sin cliente";
+      const address = event.clients?.job_address || "";
+
+      const res = await supabase.functions.invoke("sync-google-calendar", {
+        body: {
+          summary: `${cfg.emoji} ${cfg.label} — ${clientName}`,
+          description: event.description || "",
+          location: address,
+          startDate: event.event_date,
+          startTime: event.event_time?.slice(0, 5) || null,
+        },
+      });
+
+      if (res.error) {
+        console.error("Google Calendar sync error:", res.error);
+        return;
+      }
+
+      const data = res.data;
+      if (data?.needsGoogleAuth) {
+        toast({ title: "📅 Inicia sesión con Google para sincronizar el calendario", description: "Ve a la pantalla de login y usa 'Continuar con Google'." });
+        return;
+      }
+
+      if (data?.success) {
+        toast({ title: "📅 Evento añadido a Google Calendar" });
+      }
+    } catch (err) {
+      console.error("Error syncing to Google Calendar:", err);
+    }
   };
 
   const deleteEvent = async (id: string) => {
