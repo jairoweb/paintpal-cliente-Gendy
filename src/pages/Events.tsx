@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Calendar, Loader2, Trash2, Mail, MailCheck } from "lucide-react";
+import { Plus, Calendar, Loader2, Trash2, Mail, MailCheck, CalendarPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -121,6 +121,54 @@ export default function Events() {
     await supabase.from("events").delete().eq("id", id);
     setEvents(prev => prev.filter(e => e.id !== id));
     toast({ title: "Evento eliminado" });
+  };
+
+  const downloadICS = (event: any) => {
+    const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
+    const clientName = event.clients?.name || "Sin cliente";
+    const address = event.clients?.job_address || "";
+    const dateRaw = event.event_date.replace(/-/g, "");
+    
+    let dtStart: string;
+    let dtEnd: string;
+    
+    if (event.event_time) {
+      const timeRaw = event.event_time.replace(/:/g, "").slice(0, 4) + "00";
+      dtStart = `${dateRaw}T${timeRaw}`;
+      // 1 hour duration
+      const h = parseInt(event.event_time.slice(0, 2)) + 1;
+      const endTime = `${String(h).padStart(2, "0")}${event.event_time.slice(3, 5)}00`;
+      dtEnd = `${dateRaw}T${endTime}`;
+    } else {
+      dtStart = dateRaw;
+      dtEnd = dateRaw;
+    }
+
+    const summary = `${cfg.emoji} ${cfg.label} — ${clientName}`;
+    const desc = event.description || "";
+
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Asistente de Jairo//ES",
+      "BEGIN:VEVENT",
+      event.event_time ? `DTSTART:${dtStart}` : `DTSTART;VALUE=DATE:${dtStart}`,
+      event.event_time ? `DTEND:${dtEnd}` : `DTEND;VALUE=DATE:${dtEnd}`,
+      `SUMMARY:${summary}`,
+      `DESCRIPTION:${desc}`,
+      `LOCATION:${address}`,
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `evento-${event.event_date}.ics`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "📅 Archivo de calendario descargado" });
   };
 
   // Agrupar por fecha
@@ -247,6 +295,15 @@ export default function Events() {
                                 {event.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{event.description}</p>}
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                  onClick={() => downloadICS(event)}
+                                  title="Añadir al calendario"
+                                >
+                                  <CalendarPlus className="w-3.5 h-3.5" />
+                                </Button>
                                 {!event.email_sent && (
                                   <Button
                                     size="icon"
