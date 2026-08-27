@@ -32,16 +32,19 @@ function ProtectedApp() {
 
   return (
     <Layout>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/clientes" element={<Clients />} />
-        <Route path="/eventos" element={<Events />} />
-        <Route path="/fotos" element={<Photos />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/clientes" element={<Clients />} />
+          <Route path="/eventos" element={<Events />} />
+          <Route path="/fotos" element={<Photos />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </ErrorBoundary>
     </Layout>
   );
 }
+
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
