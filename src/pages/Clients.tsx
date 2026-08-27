@@ -45,41 +45,55 @@ export default function Clients() {
   const loadClients = async () => {
     if (!user) return;
     setLoading(true);
-    const { data } = await supabase
-      .from("clients")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
-    setClients(data || []);
-    setLoading(false);
+    try {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setClients(data || []);
+    } catch (err) {
+      console.error("Error cargando clientes:", err);
+      toast({ title: "No se pudieron cargar los clientes", description: "Comprueba tu conexión e inténtalo de nuevo.", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const saveClient = async () => {
     if (!form.name.trim()) return toast({ title: "El nombre es obligatorio", variant: "destructive" });
+    if (!user) return toast({ title: "Sesión no disponible", variant: "destructive" });
     setSaving(true);
 
-    const payload = {
-      ...form,
-      quote: form.quote ? parseFloat(form.quote) : null,
-      agreed_price: form.agreed_price ? parseFloat(form.agreed_price) : null,
-      user_id: user!.id,
-    };
+    try {
+      const payload = {
+        ...form,
+        name: form.name.trim(),
+        quote: form.quote ? parseFloat(form.quote) : null,
+        agreed_price: form.agreed_price ? parseFloat(form.agreed_price) : null,
+        user_id: user.id,
+      };
 
-    const { error } = editId
-      ? await supabase.from("clients").update(payload).eq("id", editId)
-      : await supabase.from("clients").insert(payload);
+      const { error } = editId
+        ? await supabase.from("clients").update(payload).eq("id", editId).eq("user_id", user.id)
+        : await supabase.from("clients").insert(payload);
 
-    if (error) {
-      toast({ title: "Error al guardar", description: "No se pudo guardar el cliente. Inténtalo de nuevo.", variant: "destructive" });
-    } else {
-      toast({ title: editId ? "Cliente actualizado" : "Cliente añadido ✓" });
+      if (error) throw error;
+
+      toast({ title: editId ? "Cliente actualizado ✓" : "Cliente añadido ✓" });
       setDialogOpen(false);
       setForm(emptyForm);
       setEditId(null);
-      loadClients();
+      await loadClients();
+    } catch (err) {
+      console.error("Error guardando cliente:", err);
+      toast({ title: "Error al guardar", description: "No se pudo guardar el cliente. Inténtalo de nuevo.", variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
+
 
   const openEdit = (client: any) => {
     setForm({
