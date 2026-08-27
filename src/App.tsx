@@ -10,7 +10,9 @@ import Clients from "./pages/Clients";
 import Events from "./pages/Events";
 import Photos from "./pages/Photos";
 import Layout from "./components/Layout";
+import ErrorBoundary from "./components/ErrorBoundary";
 import NotFound from "./pages/NotFound";
+
 
 const queryClient = new QueryClient();
 
