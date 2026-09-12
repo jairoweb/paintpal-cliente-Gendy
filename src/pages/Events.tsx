@@ -112,7 +112,7 @@ export default function Events() {
     setSending(event.id);
     try {
       const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
-      const dateStr = format(parseISO(event.event_date), "EEEE d 'de' MMMM 'de' yyyy", { locale: es });
+      const dateStr = safeFormat(event.event_date, "EEEE d 'de' MMMM 'de' yyyy");
       const timeStr = event.event_time ? ` a las ${event.event_time.slice(0, 5)}h` : "";
       const clientName = event.clients?.name || "Sin cliente";
       const address = event.clients?.job_address || "Sin dirección";
@@ -330,7 +330,7 @@ export default function Events() {
                 <div key={date}>
                   <div className="flex items-center gap-3 mb-3">
                     <div className={`text-sm font-semibold px-3 py-1 rounded-full ${isToday ? "bg-primary text-primary-foreground" : isPast ? "bg-muted text-muted-foreground" : "bg-accent text-accent-foreground"}`}>
-                      {isToday ? "Hoy" : format(parseISO(date), "EEEE, d 'de' MMMM", { locale: es })}
+                      {isToday ? "Hoy" : safeFormat(date, "EEEE, d 'de' MMMM")}
                     </div>
                     <div className="flex-1 h-px bg-border" />
                   </div>
