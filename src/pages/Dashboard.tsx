@@ -30,38 +30,49 @@ export default function Dashboard() {
 
   const loadData = async () => {
     setLoading(true);
-    const today = new Date().toISOString().split("T")[0];
+    try {
+      const today = new Date().toISOString().split("T")[0];
 
-    const [clientsRes, eventsRes, pendingRes] = await Promise.all([
-      supabase.from("clients").select("id, payment_status").eq("user_id", user!.id),
-      supabase
-        .from("events")
-        .select("*, clients(name, job_address)")
-        .eq("user_id", user!.id)
-        .gte("event_date", today)
-        .order("event_date", { ascending: true })
-        .limit(5),
-      supabase.from("clients").select("id").eq("user_id", user!.id).eq("payment_status", "pendiente"),
-    ]);
+      const [clientsRes, eventsRes, pendingRes] = await Promise.all([
+        supabase.from("clients").select("id, payment_status").eq("user_id", user!.id),
+        supabase
+          .from("events")
+          .select("*, clients(name, job_address)")
+          .eq("user_id", user!.id)
+          .gte("event_date", today)
+          .order("event_date", { ascending: true })
+          .limit(5),
+        supabase.from("clients").select("id").eq("user_id", user!.id).eq("payment_status", "pendiente"),
+      ]);
 
-    const clients = clientsRes.data || [];
-    const pending = pendingRes.data || [];
+      const clients = clientsRes.data || [];
+      const pending = pendingRes.data || [];
 
-    setStats({
-      clients: clients.length,
-      activeJobs: clients.filter(c => c.payment_status !== "cobrado").length,
-      pendingPayments: pending.length,
-    });
-    setUpcomingEvents(eventsRes.data || []);
-    setLoading(false);
+      setStats({
+        clients: clients.length,
+        activeJobs: clients.filter(c => c.payment_status !== "cobrado").length,
+        pendingPayments: pending.length,
+      });
+      setUpcomingEvents(eventsRes.data || []);
+    } catch (err) {
+      console.error("Error cargando el panel:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getDateLabel = (dateStr: string) => {
-    const d = parseISO(dateStr);
-    if (isToday(d)) return "Hoy";
-    if (isTomorrow(d)) return "Mañana";
-    return format(d, "dd MMM", { locale: es });
+    try {
+      const d = parseISO(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      if (isToday(d)) return "Hoy";
+      if (isTomorrow(d)) return "Mañana";
+      return format(d, "dd MMM", { locale: es });
+    } catch {
+      return dateStr;
+    }
   };
+
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">

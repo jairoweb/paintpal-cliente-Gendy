@@ -166,10 +166,17 @@ export default function Events() {
   };
 
   const deleteEvent = async (id: string) => {
-    await supabase.from("events").delete().eq("id", id);
-    setEvents(prev => prev.filter(e => e.id !== id));
-    toast({ title: "Evento eliminado" });
+    try {
+      const { error } = await supabase.from("events").delete().eq("id", id);
+      if (error) throw error;
+      setEvents(prev => prev.filter(e => e.id !== id));
+      toast({ title: "Evento eliminado" });
+    } catch (err) {
+      console.error("Error eliminando evento:", err);
+      toast({ title: "No se pudo eliminar", description: "Inténtalo de nuevo.", variant: "destructive" });
+    }
   };
+
 
   const downloadICS = (event: any) => {
     const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
