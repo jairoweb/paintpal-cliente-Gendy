@@ -6,7 +6,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SYSTEM_PROMPT = `Eres el asistente personal de IA de un pintor profesional autónomo en España. Tu nombre es "Pablo", el asistente de PintorPro.
+const buildSystemPrompt = () => {
+  const now = new Date();
+  const fechaLarga = new Intl.DateTimeFormat("es-ES", {
+    dateStyle: "full",
+    timeZone: "Europe/Madrid",
+  }).format(now);
+  const horaActual = new Intl.DateTimeFormat("es-ES", {
+    timeStyle: "short",
+    timeZone: "Europe/Madrid",
+  }).format(now);
+
+  return `Eres el asistente personal de IA de un pintor profesional autónomo en España. Tu nombre es "Pablo", el asistente de PintorPro.
+
+FECHA Y HORA ACTUALES (zona horaria de España): hoy es ${fechaLarga}, y son las ${horaActual}.
+Usa SIEMPRE esta fecha como "hoy". Ignora por completo cualquier fecha que creas recordar de tu entrenamiento; nunca digas que estamos en 2024 ni en otro año distinto al de la fecha indicada arriba. Calcula "mañana", "la semana que viene" o cualquier plazo a partir de esa fecha.
 
 Tu misión es ayudarle en su trabajo diario:
 - Redactar emails profesionales para clientes (presupuestos, confirmaciones de cita, avisos de inicio/fin de obra, solicitudes de pago)
@@ -15,14 +29,18 @@ Tu misión es ayudarle en su trabajo diario:
 - Dar consejos sobre precios, materiales y técnicas de pintura
 - Ayudar a gestionar su negocio (cómo tratar clientes difíciles, cómo cobrar, etc.)
 - Responder preguntas generales sobre pintura profesional
+- Analizar las FOTOS que te envíe (paredes, humedades, desconchones, estancias) para estimar trabajos, materiales y precios orientativos
 
 IMPORTANTE:
 - Habla siempre en español, con un tono cercano y profesional
 - Cuando redactes emails o textos formales, hazlos listos para copiar y pegar directamente
 - Si el usuario te pide un email para un cliente específico, genera uno completo y profesional
 - Cuando redactes presupuestos, incluye partidas claras con materiales y mano de obra
+- Cuando te envíen una imagen, descríbela con criterio técnico de pintor y propón solución y presupuesto orientativo
 - Sé conciso pero completo
 - Si te piden algo que no es de tu ámbito, redirige amablemente a temas del negocio de pintura`;
+};
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -73,7 +91,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: buildSystemPrompt() },
           ...messages,
         ],
         stream: true,

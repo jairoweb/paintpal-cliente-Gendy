@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, X, Send, Loader2, Copy, Check, Sparkles, Mic, MicOff } from "lucide-react";
+import { Bot, X, Send, Loader2, Copy, Check, Sparkles, Mic, MicOff, ImagePlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,7 +10,26 @@ import DOMPurify from "dompurify";
 
 const AI_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/pintor-ai`;
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; image?: string };
+
+type ApiMsg = {
+  role: "user" | "assistant";
+  content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+};
+
+const toApiMessages = (msgs: Msg[]): ApiMsg[] =>
+  msgs.map(m =>
+    m.image
+      ? {
+          role: m.role,
+          content: [
+            { type: "text" as const, text: m.content || "Analiza esta foto como pintor profesional." },
+            { type: "image_url" as const, image_url: { url: m.image } },
+          ],
+        }
+      : { role: m.role, content: m.content },
+  );
+
 
 // Extend window type for cross-browser Speech Recognition
 interface ISpeechRecognition extends EventTarget {
@@ -51,7 +70,7 @@ async function streamChat(messages: Msg[], onDelta: (t: string) => void, onDone:
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages: toApiMessages(messages) }),
   });
 
   if (!resp.ok) {
@@ -122,6 +141,9 @@ export default function AIAssistant() {
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [micSupported, setMicSupported] = useState(false);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
@@ -193,13 +215,15 @@ export default function AIAssistant() {
     }
   }, [listening, startListening, stopListening]);
 
-  const sendMessage = async (text: string) => {
-    if (!text.trim() || loading) return;
+  const sendMessage = async (text: string, image?: string) => {
+    const attached = image ?? pendingImage;
+    if ((!text.trim() && !attached) || loading) return;
     if (listening) stopListening();
-    const userMsg: Msg = { role: "user", content: text };
+    const userMsg: Msg = { role: "user", content: text.trim(), image: attached || undefined };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
+    setPendingImage(null);
     setLoading(true);
 
     let accumulated = "";
@@ -218,11 +242,39 @@ export default function AIAssistant() {
         },
         () => setLoading(false)
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      console.error("Error de IA:", err);
       setLoading(false);
-      toast({ title: "Error de IA", description: err.message, variant: "destructive" });
+      toast({ title: "Error de IA", description: "No se pudo obtener respuesta. Inténtalo de nuevo.", variant: "destructive" });
     }
   };
+
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Archivo no válido", description: "Selecciona una foto.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast({ title: "Foto demasiado grande", description: "Usa una foto de menos de 8 MB.", variant: "destructive" });
+      return;
+    }
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("read_error"));
+        reader.readAsDataURL(file);
+      });
+      setPendingImage(dataUrl);
+    } catch (err) {
+      console.error("Error leyendo la imagen:", err);
+      toast({ title: "No se pudo cargar la foto", description: "Inténtalo de nuevo.", variant: "destructive" });
+    }
+  };
+
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -294,7 +346,16 @@ export default function AIAssistant() {
                       ? "gradient-primary text-primary-foreground rounded-br-sm"
                       : "bg-muted text-foreground rounded-bl-sm"
                   )}>
+                    {msg.image && (
+                      <img
+                        src={msg.image}
+                        alt="Foto enviada al asistente"
+                        loading="lazy"
+                        className="mb-2 rounded-lg w-full max-w-[220px] aspect-[4/3] object-cover border border-white/20"
+                      />
+                    )}
                     {renderContent(msg.content)}
+
                     {msg.role === "assistant" && msg.content.length > 50 && (
                       <CopyButton text={msg.content} />
                     )}
@@ -327,6 +388,27 @@ export default function AIAssistant() {
             ))}
           </div>
 
+          {/* Vista previa de la foto adjunta */}
+          {pendingImage && (
+            <div className="px-3 pt-2 flex items-center gap-2.5 flex-shrink-0">
+              <div className="relative">
+                <img
+                  src={pendingImage}
+                  alt="Foto lista para enviar"
+                  className="h-14 w-14 rounded-lg object-cover border border-border"
+                />
+                <button
+                  onClick={() => setPendingImage(null)}
+                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center transition-transform hover:scale-110"
+                  title="Quitar foto"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">Foto lista. Escribe tu pregunta o envía directamente.</p>
+            </div>
+          )}
+
           {/* Input */}
           <div className="p-3 border-t border-border flex gap-2 items-end flex-shrink-0">
             <div className="relative flex-1">
@@ -335,7 +417,7 @@ export default function AIAssistant() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKey}
-                placeholder={listening ? "🎙️ Escuchando... habla ahora" : "Escríbeme o usa el micrófono..."}
+                placeholder={listening ? "🎙️ Escuchando... habla ahora" : "Escríbeme, habla o envía una foto..."}
                 className={cn(
                   "resize-none min-h-[40px] max-h-[100px] text-sm pr-2 transition-all",
                   listening && "border-destructive ring-1 ring-destructive/50 bg-destructive/5"
@@ -349,6 +431,25 @@ export default function AIAssistant() {
                 </span>
               )}
             </div>
+
+            {/* Foto */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageSelect}
+            />
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              className="flex-shrink-0 h-10 w-10"
+              title="Enviar una foto"
+            >
+              <ImagePlus className="w-4 h-4" />
+            </Button>
 
             {/* Mic button */}
             {micSupported && (
@@ -368,12 +469,13 @@ export default function AIAssistant() {
             <Button
               size="icon"
               onClick={() => sendMessage(input)}
-              disabled={loading || !input.trim()}
+              disabled={loading || (!input.trim() && !pendingImage)}
               className="flex-shrink-0 h-10 w-10"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
           </div>
+
         </div>
       )}
     </>

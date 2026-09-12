@@ -26,6 +26,17 @@ const emptyForm = {
   client_id: "", type: "presupuesto", event_date: "", event_time: "", description: "",
 };
 
+const safeFormat = (value: string, pattern: string) => {
+  try {
+    const d = parseISO(value);
+    if (isNaN(d.getTime())) return value;
+    return format(d, pattern, { locale: es });
+  } catch {
+    return value;
+  }
+};
+
+
 export default function Events() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -46,51 +57,62 @@ export default function Events() {
 
   const loadAll = async () => {
     setLoading(true);
-    const [eventsRes, clientsRes] = await Promise.all([
-      supabase.from("events").select("*, clients(name, job_address)").eq("user_id", user!.id).order("event_date", { ascending: true }),
-      supabase.from("clients").select("id, name").eq("user_id", user!.id).order("name"),
-    ]);
-    setEvents(eventsRes.data || []);
-    setClients(clientsRes.data || []);
-    setLoading(false);
+    try {
+      const [eventsRes, clientsRes] = await Promise.all([
+        supabase.from("events").select("*, clients(name, job_address)").eq("user_id", user!.id).order("event_date", { ascending: true }),
+        supabase.from("clients").select("id, name").eq("user_id", user!.id).order("name"),
+      ]);
+      if (eventsRes.error) throw eventsRes.error;
+      if (clientsRes.error) throw clientsRes.error;
+      setEvents(eventsRes.data || []);
+      setClients(clientsRes.data || []);
+    } catch (err) {
+      console.error("Error cargando eventos:", err);
+      toast({ title: "No se pudieron cargar los eventos", description: "Comprueba tu conexión e inténtalo de nuevo.", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const saveEvent = async () => {
     if (!form.event_date) return toast({ title: "La fecha es obligatoria", variant: "destructive" });
     setSaving(true);
 
-    const payload = {
-      ...form,
-      client_id: form.client_id || null,
-      event_time: form.event_time || null,
-      user_id: user!.id,
-    };
+    try {
+      const payload = {
+        ...form,
+        client_id: form.client_id || null,
+        event_time: form.event_time || null,
+        user_id: user!.id,
+      };
 
-    const { data: newEvent, error } = await supabase.from("events").insert(payload).select("*, clients(name, job_address)").single();
+      const { data: newEvent, error } = await supabase.from("events").insert(payload).select("*, clients(name, job_address)").single();
+      if (error) throw error;
 
-    if (error) {
-      toast({ title: "Error al guardar", description: "No se pudo guardar el evento. Inténtalo de nuevo.", variant: "destructive" });
-    } else {
       toast({ title: "Evento creado ✓" });
       setDialogOpen(false);
       setForm(emptyForm);
-      loadAll();
+      await loadAll();
 
       if (newEvent) {
-        // Enviar email automáticamente
-        sendEventEmail(newEvent);
-        // Sincronizar con Google Calendar
-        syncToGoogleCalendar(newEvent);
+        // Estas acciones no deben romper la pantalla si fallan
+        sendEventEmail(newEvent).catch(err => console.error("Email:", err));
+        syncToGoogleCalendar(newEvent).catch(err => console.error("Calendar:", err));
       }
+    } catch (err) {
+      console.error("Error guardando evento:", err);
+      toast({ title: "Error al guardar", description: "No se pudo guardar el evento. Inténtalo de nuevo.", variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
+
 
   const sendEventEmail = async (event: any) => {
     setSending(event.id);
     try {
       const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
-      const dateStr = format(parseISO(event.event_date), "EEEE d 'de' MMMM 'de' yyyy", { locale: es });
+      const dateStr = safeFormat(event.event_date, "EEEE d 'de' MMMM 'de' yyyy");
       const timeStr = event.event_time ? ` a las ${event.event_time.slice(0, 5)}h` : "";
       const clientName = event.clients?.name || "Sin cliente";
       const address = event.clients?.job_address || "Sin dirección";
@@ -155,10 +177,17 @@ export default function Events() {
   };
 
   const deleteEvent = async (id: string) => {
-    await supabase.from("events").delete().eq("id", id);
-    setEvents(prev => prev.filter(e => e.id !== id));
-    toast({ title: "Evento eliminado" });
+    try {
+      const { error } = await supabase.from("events").delete().eq("id", id);
+      if (error) throw error;
+      setEvents(prev => prev.filter(e => e.id !== id));
+      toast({ title: "Evento eliminado" });
+    } catch (err) {
+      console.error("Error eliminando evento:", err);
+      toast({ title: "No se pudo eliminar", description: "Inténtalo de nuevo.", variant: "destructive" });
+    }
   };
+
 
   const downloadICS = (event: any) => {
     const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
@@ -301,7 +330,7 @@ export default function Events() {
                 <div key={date}>
                   <div className="flex items-center gap-3 mb-3">
                     <div className={`text-sm font-semibold px-3 py-1 rounded-full ${isToday ? "bg-primary text-primary-foreground" : isPast ? "bg-muted text-muted-foreground" : "bg-accent text-accent-foreground"}`}>
-                      {isToday ? "Hoy" : format(parseISO(date), "EEEE, d 'de' MMMM", { locale: es })}
+                      {isToday ? "Hoy" : safeFormat(date, "EEEE, d 'de' MMMM")}
                     </div>
                     <div className="flex-1 h-px bg-border" />
                   </div>
