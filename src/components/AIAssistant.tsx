@@ -70,7 +70,7 @@ async function streamChat(messages: Msg[], onDelta: (t: string) => void, onDone:
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages: toApiMessages(messages) }),
   });
 
   if (!resp.ok) {
