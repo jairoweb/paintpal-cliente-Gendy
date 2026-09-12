@@ -346,7 +346,16 @@ export default function AIAssistant() {
                       ? "gradient-primary text-primary-foreground rounded-br-sm"
                       : "bg-muted text-foreground rounded-bl-sm"
                   )}>
+                    {msg.image && (
+                      <img
+                        src={msg.image}
+                        alt="Foto enviada al asistente"
+                        loading="lazy"
+                        className="mb-2 rounded-lg w-full max-w-[220px] aspect-[4/3] object-cover border border-white/20"
+                      />
+                    )}
                     {renderContent(msg.content)}
+
                     {msg.role === "assistant" && msg.content.length > 50 && (
                       <CopyButton text={msg.content} />
                     )}
