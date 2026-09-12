@@ -388,6 +388,27 @@ export default function AIAssistant() {
             ))}
           </div>
 
+          {/* Vista previa de la foto adjunta */}
+          {pendingImage && (
+            <div className="px-3 pt-2 flex items-center gap-2.5 flex-shrink-0">
+              <div className="relative">
+                <img
+                  src={pendingImage}
+                  alt="Foto lista para enviar"
+                  className="h-14 w-14 rounded-lg object-cover border border-border"
+                />
+                <button
+                  onClick={() => setPendingImage(null)}
+                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center transition-transform hover:scale-110"
+                  title="Quitar foto"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">Foto lista. Escribe tu pregunta o envía directamente.</p>
+            </div>
+          )}
+
           {/* Input */}
           <div className="p-3 border-t border-border flex gap-2 items-end flex-shrink-0">
             <div className="relative flex-1">
@@ -396,7 +417,7 @@ export default function AIAssistant() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKey}
-                placeholder={listening ? "🎙️ Escuchando... habla ahora" : "Escríbeme o usa el micrófono..."}
+                placeholder={listening ? "🎙️ Escuchando... habla ahora" : "Escríbeme, habla o envía una foto..."}
                 className={cn(
                   "resize-none min-h-[40px] max-h-[100px] text-sm pr-2 transition-all",
                   listening && "border-destructive ring-1 ring-destructive/50 bg-destructive/5"
@@ -410,6 +431,25 @@ export default function AIAssistant() {
                 </span>
               )}
             </div>
+
+            {/* Foto */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageSelect}
+            />
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              className="flex-shrink-0 h-10 w-10"
+              title="Enviar una foto"
+            >
+              <ImagePlus className="w-4 h-4" />
+            </Button>
 
             {/* Mic button */}
             {micSupported && (
@@ -429,12 +469,13 @@ export default function AIAssistant() {
             <Button
               size="icon"
               onClick={() => sendMessage(input)}
-              disabled={loading || !input.trim()}
+              disabled={loading || (!input.trim() && !pendingImage)}
               className="flex-shrink-0 h-10 w-10"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
           </div>
+
         </div>
       )}
     </>
