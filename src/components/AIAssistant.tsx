@@ -212,13 +212,15 @@ export default function AIAssistant() {
     }
   }, [listening, startListening, stopListening]);
 
-  const sendMessage = async (text: string) => {
-    if (!text.trim() || loading) return;
+  const sendMessage = async (text: string, image?: string) => {
+    const attached = image ?? pendingImage;
+    if ((!text.trim() && !attached) || loading) return;
     if (listening) stopListening();
-    const userMsg: Msg = { role: "user", content: text };
+    const userMsg: Msg = { role: "user", content: text.trim(), image: attached || undefined };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
+    setPendingImage(null);
     setLoading(true);
 
     let accumulated = "";
@@ -237,11 +239,39 @@ export default function AIAssistant() {
         },
         () => setLoading(false)
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      console.error("Error de IA:", err);
       setLoading(false);
-      toast({ title: "Error de IA", description: err.message, variant: "destructive" });
+      toast({ title: "Error de IA", description: "No se pudo obtener respuesta. Inténtalo de nuevo.", variant: "destructive" });
     }
   };
+
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Archivo no válido", description: "Selecciona una foto.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast({ title: "Foto demasiado grande", description: "Usa una foto de menos de 8 MB.", variant: "destructive" });
+      return;
+    }
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("read_error"));
+        reader.readAsDataURL(file);
+      });
+      setPendingImage(dataUrl);
+    } catch (err) {
+      console.error("Error leyendo la imagen:", err);
+      toast({ title: "No se pudo cargar la foto", description: "Inténtalo de nuevo.", variant: "destructive" });
+    }
+  };
+
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
