@@ -10,7 +10,26 @@ import DOMPurify from "dompurify";
 
 const AI_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/pintor-ai`;
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; image?: string };
+
+type ApiMsg = {
+  role: "user" | "assistant";
+  content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+};
+
+const toApiMessages = (msgs: Msg[]): ApiMsg[] =>
+  msgs.map(m =>
+    m.image
+      ? {
+          role: m.role,
+          content: [
+            { type: "text" as const, text: m.content || "Analiza esta foto como pintor profesional." },
+            { type: "image_url" as const, image_url: { url: m.image } },
+          ],
+        }
+      : { role: m.role, content: m.content },
+  );
+
 
 // Extend window type for cross-browser Speech Recognition
 interface ISpeechRecognition extends EventTarget {
