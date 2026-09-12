@@ -46,45 +46,56 @@ export default function Events() {
 
   const loadAll = async () => {
     setLoading(true);
-    const [eventsRes, clientsRes] = await Promise.all([
-      supabase.from("events").select("*, clients(name, job_address)").eq("user_id", user!.id).order("event_date", { ascending: true }),
-      supabase.from("clients").select("id, name").eq("user_id", user!.id).order("name"),
-    ]);
-    setEvents(eventsRes.data || []);
-    setClients(clientsRes.data || []);
-    setLoading(false);
+    try {
+      const [eventsRes, clientsRes] = await Promise.all([
+        supabase.from("events").select("*, clients(name, job_address)").eq("user_id", user!.id).order("event_date", { ascending: true }),
+        supabase.from("clients").select("id, name").eq("user_id", user!.id).order("name"),
+      ]);
+      if (eventsRes.error) throw eventsRes.error;
+      if (clientsRes.error) throw clientsRes.error;
+      setEvents(eventsRes.data || []);
+      setClients(clientsRes.data || []);
+    } catch (err) {
+      console.error("Error cargando eventos:", err);
+      toast({ title: "No se pudieron cargar los eventos", description: "Comprueba tu conexión e inténtalo de nuevo.", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const saveEvent = async () => {
     if (!form.event_date) return toast({ title: "La fecha es obligatoria", variant: "destructive" });
     setSaving(true);
 
-    const payload = {
-      ...form,
-      client_id: form.client_id || null,
-      event_time: form.event_time || null,
-      user_id: user!.id,
-    };
+    try {
+      const payload = {
+        ...form,
+        client_id: form.client_id || null,
+        event_time: form.event_time || null,
+        user_id: user!.id,
+      };
 
-    const { data: newEvent, error } = await supabase.from("events").insert(payload).select("*, clients(name, job_address)").single();
+      const { data: newEvent, error } = await supabase.from("events").insert(payload).select("*, clients(name, job_address)").single();
+      if (error) throw error;
 
-    if (error) {
-      toast({ title: "Error al guardar", description: "No se pudo guardar el evento. Inténtalo de nuevo.", variant: "destructive" });
-    } else {
       toast({ title: "Evento creado ✓" });
       setDialogOpen(false);
       setForm(emptyForm);
-      loadAll();
+      await loadAll();
 
       if (newEvent) {
-        // Enviar email automáticamente
-        sendEventEmail(newEvent);
-        // Sincronizar con Google Calendar
-        syncToGoogleCalendar(newEvent);
+        // Estas acciones no deben romper la pantalla si fallan
+        sendEventEmail(newEvent).catch(err => console.error("Email:", err));
+        syncToGoogleCalendar(newEvent).catch(err => console.error("Calendar:", err));
       }
+    } catch (err) {
+      console.error("Error guardando evento:", err);
+      toast({ title: "Error al guardar", description: "No se pudo guardar el evento. Inténtalo de nuevo.", variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
+
 
   const sendEventEmail = async (event: any) => {
     setSending(event.id);
