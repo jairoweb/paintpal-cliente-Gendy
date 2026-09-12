@@ -26,6 +26,17 @@ const emptyForm = {
   client_id: "", type: "presupuesto", event_date: "", event_time: "", description: "",
 };
 
+const safeFormat = (value: string, pattern: string) => {
+  try {
+    const d = parseISO(value);
+    if (isNaN(d.getTime())) return value;
+    return format(d, pattern, { locale: es });
+  } catch {
+    return value;
+  }
+};
+
+
 export default function Events() {
   const { user } = useAuth();
   const { toast } = useToast();
