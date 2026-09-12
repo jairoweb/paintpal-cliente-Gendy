@@ -111,7 +111,7 @@ export default function Clients() {
   };
 
   const filtered = clients.filter(c => {
-    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
+    const matchSearch = (c.name || "").toLowerCase().includes(search.toLowerCase()) ||
       (c.phone || "").includes(search) ||
       (c.job_address || "").toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === "todos" || c.payment_status === filter;
