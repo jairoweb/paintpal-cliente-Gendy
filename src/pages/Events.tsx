@@ -338,7 +338,7 @@ export default function Events() {
                     {dayEvents.map(event => {
                       const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
                       return (
-                        <Card key={event.id} className={`shadow-card border-0 ${isPast ? "opacity-70" : ""}`}>
+                        <Card key={event.id} className="shadow-card border-0">
                           <CardContent className="p-4">
                             <div className="flex items-center gap-3">
                               <span className="text-2xl">{cfg.emoji}</span>

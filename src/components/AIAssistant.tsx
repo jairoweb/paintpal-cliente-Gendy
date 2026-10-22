@@ -2,8 +2,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, X, Send, Loader2, Copy, Check, Sparkles, Mic, MicOff, ImagePlus } from "lucide-react";
+import { Bot, X, Send, Loader2, Copy, Check, Sparkles, Mic, MicOff, ImagePlus, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import DOMPurify from "dompurify";
@@ -60,6 +61,14 @@ const QUICK_PROMPTS = [
   { label: "💡 Consejo precio", prompt: "¿Cómo calculo bien el precio de pintar un piso completo de 100m²? ¿Qué debo incluir?" },
 ];
 
+const INITIAL_MESSAGE: Msg = {
+  role: "assistant",
+  content: "¡Hola! Soy **Jairo**, tu asistente de IA 🎨\n\nPuedo ayudarte a **redactar emails para clientes**, escribir **presupuestos**, dar **consejos de precios** y mucho más.\n\nUsa los accesos rápidos, escríbeme o **háblame con el micrófono** 🎙️",
+};
+
+const getChatStorageKey = (userId: string) => `jairo-ai-chat:${userId}`;
+const getDraftStorageKey = (userId: string) => `jairo-ai-draft:${userId}`;
+
 async function streamChat(messages: Msg[], onDelta: (t: string) => void, onDone: () => void) {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
@@ -113,10 +122,36 @@ async function streamChat(messages: Msg[], onDelta: (t: string) => void, onDone:
   onDone();
 }
 
+function getBudgetText(content: string) {
+  const lines = content.replace(/\r/g, "").split("\n");
+  const normalizedLine = (line: string) => line
+    .replace(/[\*#_`]/g, "")
+    .replace(/^\s*[-•]+\s*/, "")
+    .trim();
+  const isBudgetHeading = (line: string) => /^(presupuesto|propuesta)\b/i.test(normalizedLine(line));
+  const isExtraSection = (line: string) => /^(notas?|consejo|recomendaciones?|observaciones?|instrucciones)\b/i.test(normalizedLine(line));
+
+  // Descarta la introducción de Jairo y cualquier bloque posterior de notas o instrucciones.
+  const start = lines.findIndex(isBudgetHeading);
+  const budgetLines = start >= 0 ? lines.slice(start) : lines;
+  const end = budgetLines.findIndex((line, index) => index > 0 && isExtraSection(line));
+  const budget = (end >= 0 ? budgetLines.slice(0, end) : budgetLines).join("\n");
+
+  return budget
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/`/g, "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/^\s*[-*_]{3,}\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(getBudgetText(text));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -126,17 +161,53 @@ function CopyButton({ text }: { text: string }) {
       className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1.5 opacity-70 hover:opacity-100 transition-opacity"
     >
       {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
-      {copied ? "¡Copiado!" : "Copiar"}
+      {copied ? "¡Copiado!" : "Copiar presupuesto"}
     </button>
   );
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function openBudgetPdf(content: string) {
+  const printWindow = window.open("", "_blank", "width=900,height=700");
+  if (!printWindow) return false;
+
+  const body = getBudgetText(content)
+    .split("\n")
+    .map((line) => `<p>${escapeHtml(line) || "&nbsp;"}</p>`)
+    .join("");
+
+  printWindow.document.write(`<!doctype html>
+    <html lang="es"><head><meta charset="utf-8" />
+    <title>Presupuesto - Jairo</title>
+    <style>
+      body { font-family: Arial, sans-serif; color: #172033; max-width: 800px; margin: 0 auto; padding: 48px; line-height: 1.5; }
+      h1 { color: #214d80; margin-bottom: 28px; }
+      p { margin: 0 0 8px; white-space: pre-wrap; }
+      .footer { margin-top: 36px; color: #667085; font-size: 12px; border-top: 1px solid #ddd; padding-top: 12px; }
+      @media print { body { padding: 0; } }
+    </style></head><body>
+    <h1>Presupuesto</h1>${body}
+    <div class="footer">Generado por Jairo · ${new Date().toLocaleDateString("es-ES")}</div>
+    </body></html>`);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.onload = () => printWindow.print();
+  return true;
+}
+
 export default function AIAssistant() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Msg[]>([
-    { role: "assistant", content: "¡Hola! Soy **Pablo**, tu asistente de IA 🎨\n\nPuedo ayudarte a **redactar emails para clientes**, escribir **presupuestos**, dar **consejos de precios** y mucho más.\n\nUsa los accesos rápidos, escríbeme o **háblame con el micrófono** 🎙️" },
-  ]);
+  const [messages, setMessages] = useState<Msg[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
@@ -147,6 +218,55 @@ export default function AIAssistant() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  const hydratedChatRef = useRef(false);
+
+  // Recover the latest chat and unsent draft after a refresh or route change.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    try {
+      const savedMessages = localStorage.getItem(getChatStorageKey(user.id));
+      const savedDraft = localStorage.getItem(getDraftStorageKey(user.id));
+      if (savedMessages) {
+        const parsed = JSON.parse(savedMessages) as Msg[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Actualiza también respuestas antiguas guardadas antes del cambio de nombre.
+          const migrated = parsed.map((message) =>
+            message.role === "assistant"
+              ? { ...message, content: message.content.replace(/Pablo/g, "Jairo") }
+              : message,
+          );
+          setMessages(migrated);
+        }
+      }
+      if (savedDraft) setInput(savedDraft);
+    } catch (error) {
+      console.warn("No se pudo recuperar la memoria local del chat:", error);
+    } finally {
+      hydratedChatRef.current = true;
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !hydratedChatRef.current) return;
+    try {
+      // Images are intentionally excluded from local persistence to avoid filling browser storage.
+      const messagesWithoutImages = messages.map(({ image: _image, ...message }) => message);
+      localStorage.setItem(getChatStorageKey(user.id), JSON.stringify(messagesWithoutImages));
+    } catch (error) {
+      console.warn("No se pudo guardar la memoria local del chat:", error);
+    }
+  }, [messages, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !hydratedChatRef.current) return;
+    try {
+      if (input) localStorage.setItem(getDraftStorageKey(user.id), input);
+      else localStorage.removeItem(getDraftStorageKey(user.id));
+    } catch (error) {
+      console.warn("No se pudo guardar el borrador del chat:", error);
+    }
+  }, [input, user?.id]);
 
   // Check browser support for speech recognition
   useEffect(() => {
@@ -326,7 +446,7 @@ export default function AIAssistant() {
                 <Bot className="w-4 h-4 text-white" />
               </div>
               <div>
-                <p className="text-primary-foreground font-semibold text-sm leading-none">Pablo IA</p>
+                <p className="text-primary-foreground font-semibold text-sm leading-none">Jairo</p>
                 <p className="text-primary-foreground/60 text-xs mt-0.5">Tu asistente personal</p>
               </div>
             </div>
@@ -357,7 +477,21 @@ export default function AIAssistant() {
                     {renderContent(msg.content)}
 
                     {msg.role === "assistant" && msg.content.length > 50 && (
-                      <CopyButton text={msg.content} />
+                      <div className="flex items-center gap-3">
+                        <CopyButton text={msg.content} />
+                        <button
+                          onClick={() => {
+                            if (!openBudgetPdf(msg.content)) {
+                              toast({ title: "No se pudo abrir el PDF", description: "Permite las ventanas emergentes e inténtalo de nuevo.", variant: "destructive" });
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1.5 opacity-70 hover:opacity-100 transition-opacity"
+                          title="Abrir para guardar como PDF"
+                        >
+                          <Download className="w-3 h-3" />
+                          Guardar PDF
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -366,7 +500,7 @@ export default function AIAssistant() {
                 <div className="flex justify-start">
                   <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-2">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Pablo está escribiendo...</span>
+                    <span className="text-xs text-muted-foreground">Jairo está escribiendo...</span>
                   </div>
                 </div>
               )}
