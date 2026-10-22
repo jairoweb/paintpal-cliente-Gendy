@@ -175,15 +175,18 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-3">
-              {upcomingEvents.map(event => {
-                const meta = EVENT_LABELS[event.type] || EVENT_LABELS.otros;
+              {upcomingEvents.map((event, index) => {
+                const meta = EVENT_LABELS[String(event?.type ?? "otros")] || EVENT_LABELS.otros;
+                const client = Array.isArray(event?.clients) ? event.clients[0] : event?.clients;
+                const eventDate = typeof event?.event_date === "string" ? event.event_date : "";
+                const eventTime = typeof event?.event_time === "string" ? event.event_time : "";
                 return (
-                  <div key={event.id} className="flex items-center gap-4 p-3 rounded-xl bg-muted/50 hover:bg-muted transition-colors">
+                  <div key={event?.id ?? `${eventDate}-${index}`} className="flex items-center gap-4 p-3 rounded-xl bg-muted/50 hover:bg-muted transition-colors">
                     <div className="text-center min-w-[48px]">
-                      <div className="text-lg font-bold text-primary leading-none">{getDateLabel(event.event_date)}</div>
-                      {event.event_time && (
+                      <div className="text-lg font-bold text-primary leading-none">{getDateLabel(eventDate)}</div>
+                      {eventTime && (
                         <div className="text-xs text-muted-foreground mt-0.5">
-                          {event.event_time.slice(0, 5)}h
+                          {eventTime.slice(0, 5)}h
                         </div>
                       )}
                     </div>
@@ -191,11 +194,11 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2">
                         <span className="text-base">{meta.emoji}</span>
                         <span className="font-medium text-sm text-foreground truncate">
-                          {event.clients?.name || "Sin cliente"}
+                          {client?.name || "Sin cliente"}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {event.clients?.job_address || event.description || meta.label}
+                        {client?.job_address || event?.description || meta.label}
                       </p>
                     </div>
                     <Badge variant="secondary" className={`text-xs shrink-0 ${meta.color}`}>
