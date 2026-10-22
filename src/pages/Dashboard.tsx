@@ -50,10 +50,10 @@ export default function Dashboard() {
 
       setStats({
         clients: clients.length,
-        activeJobs: clients.filter(c => c.payment_status !== "cobrado").length,
+        activeJobs: clients.filter(c => c && c.payment_status !== "cobrado").length,
         pendingPayments: pending.length,
       });
-      setUpcomingEvents(eventsRes.data || []);
+      setUpcomingEvents((eventsRes.data || []).filter(Boolean));
     } catch (err) {
       console.error("Error cargando el panel:", err);
     } finally {
@@ -198,7 +198,7 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {client?.job_address || event?.description || meta.label}
+                        {client?.job_address || (typeof event?.description === "string" ? event.description : "") || meta.label}
                       </p>
                     </div>
                     <Badge variant="secondary" className={`text-xs shrink-0 ${meta.color}`}>
