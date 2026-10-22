@@ -26,15 +26,20 @@ const emptyForm = {
   client_id: "", type: "presupuesto", event_date: "", event_time: "", description: "",
 };
 
-const safeFormat = (value: string, pattern: string) => {
+const safeFormat = (value: unknown, pattern: string) => {
+  const text = typeof value === "string" ? value : "";
   try {
-    const d = parseISO(value);
-    if (isNaN(d.getTime())) return value;
+    const d = parseISO(text);
+    if (isNaN(d.getTime())) return text || "Fecha no disponible";
     return format(d, pattern, { locale: es });
   } catch {
-    return value;
+    return text || "Fecha no disponible";
   }
 };
+
+const getClient = (event: any) => (Array.isArray(event?.clients) ? event.clients[0] : event?.clients);
+const getEventTime = (event: any) => typeof event?.event_time === "string" ? event.event_time : "";
+const getEventDate = (event: any) => typeof event?.event_date === "string" ? event.event_date : "";
 
 
 export default function Events() {
@@ -113,9 +118,11 @@ export default function Events() {
     try {
       const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
       const dateStr = safeFormat(event.event_date, "EEEE d 'de' MMMM 'de' yyyy");
-      const timeStr = event.event_time ? ` a las ${event.event_time.slice(0, 5)}h` : "";
-      const clientName = event.clients?.name || "Sin cliente";
-      const address = event.clients?.job_address || "Sin dirección";
+      const eventTime = getEventTime(event);
+      const client = getClient(event);
+      const timeStr = eventTime ? ` a las ${eventTime.slice(0, 5)}h` : "";
+      const clientName = client?.name || "Sin cliente";
+      const address = client?.job_address || "Sin dirección";
 
       const res = await supabase.functions.invoke("send-event-email", {
         body: {
@@ -144,8 +151,10 @@ export default function Events() {
   const syncToGoogleCalendar = async (event: any) => {
     try {
       const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
-      const clientName = event.clients?.name || "Sin cliente";
-      const address = event.clients?.job_address || "";
+      const client = getClient(event);
+      const eventTime = getEventTime(event);
+      const clientName = client?.name || "Sin cliente";
+      const address = client?.job_address || "";
 
       const res = await supabase.functions.invoke("sync-google-calendar", {
         body: {
@@ -153,7 +162,7 @@ export default function Events() {
           description: event.description || "",
           location: address,
           startDate: event.event_date,
-          startTime: event.event_time?.slice(0, 5) || null,
+          startTime: eventTime ? eventTime.slice(0, 5) : null,
         },
       });
 
@@ -191,19 +200,22 @@ export default function Events() {
 
   const downloadICS = (event: any) => {
     const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
-    const clientName = event.clients?.name || "Sin cliente";
-    const address = event.clients?.job_address || "";
-    const dateRaw = event.event_date.replace(/-/g, "");
+    const client = getClient(event);
+    const eventDate = getEventDate(event);
+    const eventTime = getEventTime(event);
+    const clientName = client?.name || "Sin cliente";
+    const address = client?.job_address || "";
+    const dateRaw = eventDate.replace(/-/g, "");
     
     let dtStart: string;
     let dtEnd: string;
     
-    if (event.event_time) {
-      const timeRaw = event.event_time.replace(/:/g, "").slice(0, 4) + "00";
+    if (eventTime) {
+      const timeRaw = eventTime.replace(/:/g, "").slice(0, 4) + "00";
       dtStart = `${dateRaw}T${timeRaw}`;
       // 1 hour duration
-      const h = parseInt(event.event_time.slice(0, 2)) + 1;
-      const endTime = `${String(h).padStart(2, "0")}${event.event_time.slice(3, 5)}00`;
+      const h = (parseInt(eventTime.slice(0, 2), 10) || 0) + 1;
+      const endTime = `${String(h).padStart(2, "0")}${eventTime.slice(3, 5)}00`;
       dtEnd = `${dateRaw}T${endTime}`;
     } else {
       dtStart = dateRaw;
@@ -218,8 +230,8 @@ export default function Events() {
       "VERSION:2.0",
       "PRODID:-//Asistente de Jairo//ES",
       "BEGIN:VEVENT",
-      event.event_time ? `DTSTART:${dtStart}` : `DTSTART;VALUE=DATE:${dtStart}`,
-      event.event_time ? `DTEND:${dtEnd}` : `DTEND;VALUE=DATE:${dtEnd}`,
+      eventTime ? `DTSTART:${dtStart}` : `DTSTART;VALUE=DATE:${dtStart}`,
+      eventTime ? `DTEND:${dtEnd}` : `DTEND;VALUE=DATE:${dtEnd}`,
       `SUMMARY:${summary}`,
       `DESCRIPTION:${desc}`,
       `LOCATION:${address}`,
@@ -231,7 +243,7 @@ export default function Events() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `evento-${event.event_date}.ics`;
+    a.download = `evento-${eventDate || "sin-fecha"}.ics`;
     a.click();
     URL.revokeObjectURL(url);
     toast({ title: "📅 Archivo de calendario descargado" });
@@ -240,7 +252,7 @@ export default function Events() {
   // Agrupar por fecha
   const grouped: Record<string, any[]> = {};
   events.forEach(ev => {
-    const key = ev.event_date;
+    const key = getEventDate(ev) || "sin-fecha";
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(ev);
   });
@@ -335,18 +347,20 @@ export default function Events() {
                     <div className="flex-1 h-px bg-border" />
                   </div>
                   <div className="space-y-2">
-                    {dayEvents.map(event => {
-                      const cfg = EVENT_CONFIG[event.type] || EVENT_CONFIG.otros;
+                    {dayEvents.map((event, eventIndex) => {
+                      const cfg = EVENT_CONFIG[String(event?.type ?? "otros")] || EVENT_CONFIG.otros;
+                      const client = getClient(event);
+                      const eventTime = getEventTime(event);
                       return (
-                        <Card key={event.id} className="shadow-card border-0">
+                        <Card key={event?.id ?? `${date}-${eventIndex}`} className="shadow-card border-0">
                           <CardContent className="p-4">
                             <div className="flex items-center gap-3">
                               <span className="text-2xl">{cfg.emoji}</span>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <Badge variant="secondary" className={`text-xs ${cfg.color}`}>{cfg.label}</Badge>
-                                  {event.event_time && (
-                                    <span className="text-xs text-muted-foreground">{event.event_time.slice(0, 5)}h</span>
+                                  {eventTime && (
+                                    <span className="text-xs text-muted-foreground">{eventTime.slice(0, 5)}h</span>
                                   )}
                                   {event.email_sent && (
                                     <span className="text-xs text-green-600 flex items-center gap-1">
@@ -355,8 +369,8 @@ export default function Events() {
                                   )}
                                 </div>
                                 <p className="text-sm font-medium text-foreground mt-0.5">
-                                  {event.clients?.name || "Sin cliente"}
-                                  {event.clients?.job_address && <span className="text-muted-foreground font-normal"> — {event.clients.job_address}</span>}
+                                  {client?.name || "Sin cliente"}
+                                  {client?.job_address && <span className="text-muted-foreground font-normal"> — {client.job_address}</span>}
                                 </p>
                                 {event.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{event.description}</p>}
                               </div>
