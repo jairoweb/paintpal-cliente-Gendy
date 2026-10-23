@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Phone, MapPin, Euro, ChevronRight, Loader2, User, FileText, Download, Pencil, Save } from "lucide-react";
+import { Plus, Search, Phone, MapPin, Euro, ChevronRight, Loader2, User, FileText, Download, Pencil, Save, Upload, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "react-router-dom";
 
@@ -35,6 +35,9 @@ type Quote = {
   content: string;
   created_at: string;
   updated_at: string;
+  original_file_path?: string | null;
+  original_file_name?: string | null;
+  original_file_type?: string | null;
 };
 
 function openQuotePdf(quote: Pick<Quote, "title" | "content">) {
@@ -56,6 +59,12 @@ function openQuotePdf(quote: Pick<Quote, "title" | "content">) {
   printWindow.onload = () => printWindow.print();
 }
 
+async function openOriginalQuotePdf(path: string) {
+  const { data, error } = await supabase.storage.from("quote-files").createSignedUrl(path, 60 * 10);
+  if (error || !data?.signedUrl) throw error || new Error("No se pudo abrir el PDF");
+  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+}
+
 export default function Clients() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -71,6 +80,8 @@ export default function Clients() {
   const [quoteEditorId, setQuoteEditorId] = useState<string | null>(null);
   const [quoteTitle, setQuoteTitle] = useState("Presupuesto");
   const [quoteContent, setQuoteContent] = useState("");
+  const [quoteFile, setQuoteFile] = useState<File | null>(null);
+  const [quoteFileName, setQuoteFileName] = useState("");
   const [quoteSaving, setQuoteSaving] = useState(false);
 
   useEffect(() => { loadClients(); }, [user]);
@@ -150,6 +161,8 @@ export default function Clients() {
     setQuoteEditorId(null);
     setQuoteTitle("Presupuesto");
     setQuoteContent("");
+    setQuoteFile(null);
+    setQuoteFileName("");
     setDialogOpen(true);
   };
 
@@ -157,30 +170,53 @@ export default function Clients() {
     setQuoteEditorId("new");
     setQuoteTitle("Presupuesto");
     setQuoteContent("");
+    setQuoteFile(null);
+    setQuoteFileName("");
   };
 
   const editQuote = (quote: Quote) => {
     setQuoteEditorId(quote.id);
     setQuoteTitle(quote.title);
     setQuoteContent(quote.content);
+    setQuoteFile(null);
+    setQuoteFileName(quote.original_file_name || "");
   };
 
   const saveQuote = async () => {
-    if (!editId || !user || !quoteContent.trim()) {
-      toast({ title: "Escribe el contenido del presupuesto", variant: "destructive" });
+    if (!editId || !user || (!quoteContent.trim() && !quoteFile)) {
+      toast({ title: "Añade el texto o selecciona un PDF", variant: "destructive" });
       return;
     }
     setQuoteSaving(true);
     try {
-      const payload = { title: quoteTitle.trim() || "Presupuesto", content: quoteContent.trim(), client_id: editId, user_id: user.id };
+      let originalFilePath: string | null | undefined;
+      let originalFileName: string | null | undefined;
+      let originalFileType: string | null | undefined;
+      if (quoteFile) {
+        const safeName = quoteFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        originalFilePath = `${user.id}/${editId}/${Date.now()}-${safeName}`;
+        const upload = await supabase.storage.from("quote-files").upload(originalFilePath, quoteFile, { contentType: "application/pdf", upsert: false });
+        if (upload.error) throw upload.error;
+        originalFileName = quoteFile.name;
+        originalFileType = quoteFile.type || "application/pdf";
+      }
+      const payload = {
+        title: quoteTitle.trim() || "Presupuesto",
+        content: quoteContent.trim(),
+        client_id: editId,
+        user_id: user.id,
+        ...(originalFilePath ? { original_file_path: originalFilePath, original_file_name: originalFileName, original_file_type: originalFileType } : {}),
+      };
       const result = quoteEditorId === "new"
         ? await supabase.from("quotes").insert(payload).select("*").single()
-        : await supabase.from("quotes").update({ title: payload.title, content: payload.content }).eq("id", quoteEditorId).eq("user_id", user.id).select("*").single();
+        : await supabase.from("quotes").update({ title: payload.title, content: payload.content, ...(originalFilePath ? { original_file_path: originalFilePath, original_file_name: originalFileName, original_file_type: originalFileType } : {}) }).eq("id", quoteEditorId).eq("user_id", user.id).select("*").single();
       if (result.error) throw result.error;
       setQuotes(prev => quoteEditorId === "new"
         ? [result.data as Quote, ...prev]
         : prev.map(q => q.id === quoteEditorId ? result.data as Quote : q));
       setQuoteEditorId(null);
+      setQuoteFile(null);
+      setQuoteFileName("");
       toast({ title: "Presupuesto guardado ✓" });
     } catch (err) {
       console.error("Error guardando presupuesto:", err);
@@ -281,6 +317,12 @@ export default function Clients() {
                           <span className="text-sm font-medium truncate">{quote.title}</span>
                         </div>
                         <div className="flex gap-1 flex-shrink-0">
+                          {quote.original_file_path && (
+                            <Button type="button" size="sm" variant="ghost" title="Abrir PDF original" onClick={async () => {
+                              try { await openOriginalQuotePdf(quote.original_file_path!); }
+                              catch { toast({ title: "No se pudo abrir el PDF", variant: "destructive" }); }
+                            }}><ExternalLink className="w-4 h-4" /></Button>
+                          )}
                           <Button type="button" size="sm" variant="ghost" title="Editar" onClick={() => editQuote(quote)}><Pencil className="w-4 h-4" /></Button>
                           <Button type="button" size="sm" variant="ghost" title="Abrir PDF" onClick={() => openQuotePdf(quote)}><Download className="w-4 h-4" /></Button>
                         </div>
@@ -290,6 +332,19 @@ export default function Clients() {
                     {quoteEditorId && (
                       <div className="rounded-lg bg-muted/40 p-3 space-y-2">
                         <Input value={quoteTitle} onChange={e => setQuoteTitle(e.target.value)} placeholder="Título del presupuesto" />
+                        <label className="flex items-center gap-2 rounded-md border border-dashed border-border p-3 text-sm cursor-pointer hover:bg-muted">
+                          <Upload className="w-4 h-4" />
+                          <span>{quoteFileName || "Seleccionar PDF original de WhatsApp"}</span>
+                          <Input type="file" accept="application/pdf,.pdf" className="hidden" onChange={e => {
+                            const file = e.target.files?.[0] || null;
+                            if (file && file.type !== "application/pdf") {
+                              toast({ title: "Selecciona un archivo PDF", variant: "destructive" });
+                              return;
+                            }
+                            setQuoteFile(file);
+                            setQuoteFileName(file?.name || "");
+                          }} />
+                        </label>
                         <Textarea value={quoteContent} onChange={e => setQuoteContent(e.target.value)} placeholder="Escribe o pega aquí el presupuesto..." rows={8} />
                         <div className="flex justify-end gap-2">
                           <Button type="button" size="sm" variant="ghost" onClick={() => setQuoteEditorId(null)}>Cancelar</Button>
