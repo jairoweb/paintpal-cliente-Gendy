@@ -150,6 +150,9 @@ export type Database = {
           content: string
           created_at: string
           id: string
+          original_file_name: string | null
+          original_file_path: string | null
+          original_file_type: string | null
           title: string
           updated_at: string
           user_id: string
@@ -159,6 +162,9 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          original_file_name?: string | null
+          original_file_path?: string | null
+          original_file_type?: string | null
           title?: string
           updated_at?: string
           user_id: string
@@ -168,6 +174,9 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          original_file_name?: string | null
+          original_file_path?: string | null
+          original_file_type?: string | null
           title?: string
           updated_at?: string
           user_id?: string
