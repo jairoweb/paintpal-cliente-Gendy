@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import AIAssistant from "@/components/AIAssistant";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -134,7 +135,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* AI Assistant Floating Button */}
-      <AIAssistant />
+      <ErrorBoundary>
+        <AIAssistant />
+      </ErrorBoundary>
     </div>
   );
 }

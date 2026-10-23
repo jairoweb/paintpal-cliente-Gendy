@@ -144,8 +144,18 @@ function getBudgetText(content: string) {
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/^\s*[-*]\s+/gm, "• ")
     .replace(/^\s*[-*_]{3,}\s*$/gm, "")
+    // Las partidas del presupuesto no necesitan mostrar la tabla técnica
+    // cuando los valores son cero: cantidad, unidad, precio e importe.
+    .replace(/^\s*Cantidad\s*:\s*[^\n]*\bUnidad\s*:\s*[^\n]*\bPrecio\s*:\s*0(?:[,.]0+)?\s*$/gim, "")
+    .replace(/^\s*Import(?:e|ación)\s*:\s*0(?:[,.]0+)?\s*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function getDisplayedContent(content: string) {
+  const looksLikeBudget = /\b(presupuesto|propuesta)\b/i.test(content) ||
+    /\bCantidad\s*:/i.test(content);
+  return looksLikeBudget ? getBudgetText(content) : content;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -474,7 +484,7 @@ export default function AIAssistant() {
                         className="mb-2 rounded-lg w-full max-w-[220px] aspect-[4/3] object-cover border border-white/20"
                       />
                     )}
-                    {renderContent(msg.content)}
+                    {renderContent(getDisplayedContent(msg.content))}
 
                     {msg.role === "assistant" && msg.content.length > 50 && (
                       <div className="flex items-center gap-3">
