@@ -189,31 +189,41 @@ export default function Clients() {
     }
     setQuoteSaving(true);
     try {
-      let originalFilePath: string | null | undefined;
-      let originalFileName: string | null | undefined;
-      let originalFileType: string | null | undefined;
-      if (quoteFile) {
-        const safeName = quoteFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        originalFilePath = `${user.id}/${editId}/${Date.now()}-${safeName}`;
-        const upload = await supabase.storage.from("quote-files").upload(originalFilePath, quoteFile, { contentType: "application/pdf", upsert: false });
-        if (upload.error) throw upload.error;
-        originalFileName = quoteFile.name;
-        originalFileType = quoteFile.type || "application/pdf";
-      }
       const payload = {
         title: quoteTitle.trim() || "Presupuesto",
         content: quoteContent.trim(),
         client_id: editId,
         user_id: user.id,
-        ...(originalFilePath ? { original_file_path: originalFilePath, original_file_name: originalFileName, original_file_type: originalFileType } : {}),
       };
-      const result = quoteEditorId === "new"
-        ? await supabase.from("quotes").insert(payload).select("*").single()
-        : await supabase.from("quotes").update({ title: payload.title, content: payload.content, ...(originalFilePath ? { original_file_path: originalFilePath, original_file_name: originalFileName, original_file_type: originalFileType } : {}) }).eq("id", quoteEditorId).eq("user_id", user.id).select("*").single();
-      if (result.error) throw result.error;
+      let savedQuote: Quote;
+
+      if (quoteEditorId === "new") {
+        const created = await supabase.from("quotes").insert(payload).select("*").single();
+        if (created.error) throw created.error;
+        savedQuote = created.data as Quote;
+      } else {
+        const updated = await supabase.from("quotes").update(payload).eq("id", quoteEditorId).eq("user_id", user.id).select("*").single();
+        if (updated.error) throw updated.error;
+        savedQuote = updated.data as Quote;
+      }
+
+      if (quoteFile) {
+        const safeName = quoteFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const originalFilePath = `${user.id}/${editId}/${savedQuote.id}/${Date.now()}-${safeName}`;
+        const upload = await supabase.storage.from("quote-files").upload(originalFilePath, quoteFile, { contentType: "application/pdf", upsert: false });
+        if (upload.error) throw upload.error;
+        const withFile = await supabase.from("quotes").update({
+          original_file_path: originalFilePath,
+          original_file_name: quoteFile.name,
+          original_file_type: quoteFile.type || "application/pdf",
+        }).eq("id", savedQuote.id).eq("user_id", user.id).select("*").single();
+        if (withFile.error) throw withFile.error;
+        savedQuote = withFile.data as Quote;
+      }
+
       setQuotes(prev => quoteEditorId === "new"
-        ? [result.data as Quote, ...prev]
-        : prev.map(q => q.id === quoteEditorId ? result.data as Quote : q));
+        ? [savedQuote, ...prev]
+        : prev.map(q => q.id === quoteEditorId ? savedQuote : q));
       setQuoteEditorId(null);
       setQuoteFile(null);
       setQuoteFileName("");
