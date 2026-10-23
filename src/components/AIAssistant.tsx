@@ -137,17 +137,29 @@ function getBudgetText(content: string) {
   const end = budgetLines.findIndex((line, index) => index > 0 && isExtraSection(line));
   const budget = (end >= 0 ? budgetLines.slice(0, end) : budgetLines).join("\n");
 
-  return budget
+  const cleaned = budget
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/`/g, "")
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/^\s*[-*]\s+/gm, "• ")
     .replace(/^\s*[-*_]{3,}\s*$/gm, "")
-    // Las partidas del presupuesto no necesitan mostrar la tabla técnica
-    // cuando los valores son cero: cantidad, unidad, precio e importe.
-    .replace(/^\s*Cantidad\s*:\s*[^\n]*\bUnidad\s*:\s*[^\n]*\bPrecio\s*:\s*0(?:[,.]0+)?\s*$/gim, "")
-    .replace(/^\s*Import(?:e|ación)\s*:\s*0(?:[,.]0+)?\s*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  // La IA puede variar los espacios, los decimales o escribir Importación.
+  // En el presupuesto mostramos solo la descripción y los totales, nunca la
+  // tabla técnica de cantidad, unidad, precio e importe.
+  return cleaned
+    .split("\n")
+    .filter((line) => {
+      const normalized = line.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const technicalLine = /\bcantidad\s*:/i.test(normalized) &&
+        (/\bunidad\s*:/i.test(normalized) || /\bprecio\s*:/i.test(normalized));
+      const amountLine = /^\s*import(?:e|acion)\s*:/i.test(normalized);
+      return !technicalLine && !amountLine;
+    })
+    .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
