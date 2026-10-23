@@ -60,9 +60,14 @@ function openQuotePdf(quote: Pick<Quote, "title" | "content">) {
 }
 
 async function openOriginalQuotePdf(path: string) {
+  const pdfWindow = window.open("about:blank", "_blank");
+  if (!pdfWindow) throw new Error("El navegador ha bloqueado la ventana del PDF");
   const { data, error } = await supabase.storage.from("quote-files").createSignedUrl(path, 60 * 10);
-  if (error || !data?.signedUrl) throw error || new Error("No se pudo abrir el PDF");
-  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  if (error || !data?.signedUrl) {
+    pdfWindow.close();
+    throw error || new Error("No se pudo abrir el PDF");
+  }
+  pdfWindow.location.href = data.signedUrl;
 }
 
 export default function Clients() {
