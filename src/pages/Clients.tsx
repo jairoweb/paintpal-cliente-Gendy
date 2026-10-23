@@ -235,7 +235,9 @@ export default function Clients() {
       toast({ title: "Presupuesto guardado ✓" });
     } catch (err) {
       console.error("Error guardando presupuesto:", err);
-      toast({ title: "No se pudo guardar el presupuesto", description: "Comprueba la conexión e inténtalo de nuevo.", variant: "destructive" });
+      const backendError = err as { message?: string; details?: string; hint?: string };
+      const description = [backendError.message, backendError.details, backendError.hint].filter(Boolean).join(" — ") || "Comprueba la conexión e inténtalo de nuevo.";
+      toast({ title: "No se pudo guardar el presupuesto", description, variant: "destructive" });
     } finally {
       setQuoteSaving(false);
     }
