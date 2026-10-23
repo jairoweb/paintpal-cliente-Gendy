@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Phone, MapPin, Euro, ChevronRight, Loader2, User } from "lucide-react";
+import { Plus, Search, Phone, MapPin, Euro, ChevronRight, Loader2, User, FileText, Download, Pencil, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "react-router-dom";
 
@@ -28,6 +28,34 @@ const emptyForm = {
   quote: "", agreed_price: "", payment_status: "pendiente", notes: "",
 };
 
+type Quote = {
+  id: string;
+  client_id: string;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function openQuotePdf(quote: Pick<Quote, "title" | "content">) {
+  const printWindow = window.open("", "_blank", "width=900,height=700");
+  if (!printWindow) return;
+  const escapeHtml = (value: string) => value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+  const body = quote.content.split("\n").map(line => `<p>${escapeHtml(line) || "&nbsp;"}</p>`).join("");
+  printWindow.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8" />
+    <title>${escapeHtml(quote.title)}</title>
+    <style>body{font-family:Arial,sans-serif;color:#172033;max-width:800px;margin:0 auto;padding:48px;line-height:1.5}h1{color:#214d80;margin-bottom:28px}p{margin:0 0 8px;white-space:pre-wrap}@media print{body{padding:0}}</style>
+    </head><body><h1>${escapeHtml(quote.title)}</h1>${body}</body></html>`);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.onload = () => printWindow.print();
+}
+
 export default function Clients() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -39,6 +67,11 @@ export default function Clients() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState<string | null>(null);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [quoteEditorId, setQuoteEditorId] = useState<string | null>(null);
+  const [quoteTitle, setQuoteTitle] = useState("Presupuesto");
+  const [quoteContent, setQuoteContent] = useState("");
+  const [quoteSaving, setQuoteSaving] = useState(false);
 
   useEffect(() => { loadClients(); }, [user]);
 
@@ -53,6 +86,13 @@ export default function Clients() {
         .order("created_at", { ascending: false });
       if (error) throw error;
       setClients(data || []);
+
+      const quoteResult = await supabase
+        .from("quotes")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false });
+      if (!quoteResult.error) setQuotes((quoteResult.data || []) as Quote[]);
     } catch (err) {
       console.error("Error cargando clientes:", err);
       toast({ title: "No se pudieron cargar los clientes", description: "Comprueba tu conexión e inténtalo de nuevo.", variant: "destructive" });
@@ -107,7 +147,47 @@ export default function Clients() {
       notes: client.notes || "",
     });
     setEditId(client.id);
+    setQuoteEditorId(null);
+    setQuoteTitle("Presupuesto");
+    setQuoteContent("");
     setDialogOpen(true);
+  };
+
+  const startNewQuote = () => {
+    setQuoteEditorId("new");
+    setQuoteTitle("Presupuesto");
+    setQuoteContent("");
+  };
+
+  const editQuote = (quote: Quote) => {
+    setQuoteEditorId(quote.id);
+    setQuoteTitle(quote.title);
+    setQuoteContent(quote.content);
+  };
+
+  const saveQuote = async () => {
+    if (!editId || !user || !quoteContent.trim()) {
+      toast({ title: "Escribe el contenido del presupuesto", variant: "destructive" });
+      return;
+    }
+    setQuoteSaving(true);
+    try {
+      const payload = { title: quoteTitle.trim() || "Presupuesto", content: quoteContent.trim(), client_id: editId, user_id: user.id };
+      const result = quoteEditorId === "new"
+        ? await supabase.from("quotes").insert(payload).select("*").single()
+        : await supabase.from("quotes").update({ title: payload.title, content: payload.content }).eq("id", quoteEditorId).eq("user_id", user.id).select("*").single();
+      if (result.error) throw result.error;
+      setQuotes(prev => quoteEditorId === "new"
+        ? [result.data as Quote, ...prev]
+        : prev.map(q => q.id === quoteEditorId ? result.data as Quote : q));
+      setQuoteEditorId(null);
+      toast({ title: "Presupuesto guardado ✓" });
+    } catch (err) {
+      console.error("Error guardando presupuesto:", err);
+      toast({ title: "No se pudo guardar el presupuesto", description: "Comprueba la conexión e inténtalo de nuevo.", variant: "destructive" });
+    } finally {
+      setQuoteSaving(false);
+    }
   };
 
   const filtered = clients.filter(c => {
@@ -126,7 +206,7 @@ export default function Clients() {
           <h1 className="text-2xl font-bold text-foreground">Clientes</h1>
           <p className="text-muted-foreground text-sm">{clients.length} clientes en total</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={v => { setDialogOpen(v); if (!v) { setForm(emptyForm); setEditId(null); } }}>
+        <Dialog open={dialogOpen} onOpenChange={v => { setDialogOpen(v); if (!v) { setForm(emptyForm); setEditId(null); setQuoteEditorId(null); } }}>
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="w-4 h-4" /> Nuevo cliente
@@ -177,6 +257,50 @@ export default function Clients() {
                   <Label>Notas</Label>
                   <Textarea placeholder="Notas adicionales del trabajo..." rows={3} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
+
+                {editId && (
+                  <div className="col-span-2 border-t border-border pt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <Label className="text-base">Presupuestos</Label>
+                        <p className="text-xs text-muted-foreground mt-1">Guarda, edita y abre los presupuestos de este cliente.</p>
+                      </div>
+                      <Button type="button" size="sm" variant="outline" className="gap-1" onClick={startNewQuote}>
+                        <Plus className="w-3.5 h-3.5" /> Nuevo
+                      </Button>
+                    </div>
+
+                    {quotes.filter(q => q.client_id === editId).length === 0 && quoteEditorId !== "new" && (
+                      <p className="text-sm text-muted-foreground rounded-lg bg-muted/50 p-3">Todavía no hay presupuestos guardados.</p>
+                    )}
+
+                    {quotes.filter(q => q.client_id === editId).map(quote => (
+                      <div key={quote.id} className="flex items-center justify-between gap-2 rounded-lg border border-border p-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="w-4 h-4 text-primary flex-shrink-0" />
+                          <span className="text-sm font-medium truncate">{quote.title}</span>
+                        </div>
+                        <div className="flex gap-1 flex-shrink-0">
+                          <Button type="button" size="sm" variant="ghost" title="Editar" onClick={() => editQuote(quote)}><Pencil className="w-4 h-4" /></Button>
+                          <Button type="button" size="sm" variant="ghost" title="Abrir PDF" onClick={() => openQuotePdf(quote)}><Download className="w-4 h-4" /></Button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {quoteEditorId && (
+                      <div className="rounded-lg bg-muted/40 p-3 space-y-2">
+                        <Input value={quoteTitle} onChange={e => setQuoteTitle(e.target.value)} placeholder="Título del presupuesto" />
+                        <Textarea value={quoteContent} onChange={e => setQuoteContent(e.target.value)} placeholder="Escribe o pega aquí el presupuesto..." rows={8} />
+                        <div className="flex justify-end gap-2">
+                          <Button type="button" size="sm" variant="ghost" onClick={() => setQuoteEditorId(null)}>Cancelar</Button>
+                          <Button type="button" size="sm" className="gap-1" onClick={saveQuote} disabled={quoteSaving}>
+                            {quoteSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Guardar presupuesto
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <Button className="w-full" onClick={saveClient} disabled={saving}>
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : editId ? "Guardar cambios" : "Añadir cliente"}

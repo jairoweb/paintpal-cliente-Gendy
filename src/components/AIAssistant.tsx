@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, X, Send, Loader2, Copy, Check, Sparkles, Mic, MicOff, ImagePlus, Download } from "lucide-react";
+import { Bot, X, Send, Loader2, Copy, Check, Sparkles, Mic, MicOff, ImagePlus, Download, FileText, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -235,6 +235,10 @@ export default function AIAssistant() {
   const [listening, setListening] = useState(false);
   const [micSupported, setMicSupported] = useState(false);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [savingQuoteIndex, setSavingQuoteIndex] = useState<number | null>(null);
+  const [quoteClientId, setQuoteClientId] = useState("");
+  const [quoteSaving, setQuoteSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -267,6 +271,19 @@ export default function AIAssistant() {
     } finally {
       hydratedChatRef.current = true;
     }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from("clients")
+      .select("id, name")
+      .eq("user_id", user.id)
+      .order("name")
+      .then(({ data, error }) => {
+        if (error) console.warn("No se pudieron cargar los clientes para guardar el presupuesto:", error);
+        else setClientOptions(data || []);
+      });
   }, [user?.id]);
 
   useEffect(() => {
@@ -417,6 +434,31 @@ export default function AIAssistant() {
     }
   };
 
+  const saveBudgetForClient = async (content: string) => {
+    if (!user?.id || !quoteClientId) {
+      toast({ title: "Selecciona un cliente", description: "Elige el cliente donde quieres guardar este presupuesto.", variant: "destructive" });
+      return;
+    }
+    setQuoteSaving(true);
+    try {
+      const { error } = await supabase.from("quotes").insert({
+        user_id: user.id,
+        client_id: quoteClientId,
+        title: `Presupuesto · ${new Date().toLocaleDateString("es-ES")}`,
+        content: getBudgetText(content),
+      });
+      if (error) throw error;
+      toast({ title: "Presupuesto guardado ✓", description: "Ya puedes verlo dentro de la ficha del cliente." });
+      setSavingQuoteIndex(null);
+      setQuoteClientId("");
+    } catch (err) {
+      console.error("Error guardando presupuesto:", err);
+      toast({ title: "No se pudo guardar", description: "La tabla de presupuestos todavía no está disponible o hay un problema de conexión.", variant: "destructive" });
+    } finally {
+      setQuoteSaving(false);
+    }
+  };
+
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -499,7 +541,7 @@ export default function AIAssistant() {
                     {renderContent(getDisplayedContent(msg.content))}
 
                     {msg.role === "assistant" && msg.content.length > 50 && (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <CopyButton text={msg.content} />
                         <button
                           onClick={() => {
@@ -513,6 +555,30 @@ export default function AIAssistant() {
                           <Download className="w-3 h-3" />
                           Guardar PDF
                         </button>
+                        <button
+                          onClick={() => setSavingQuoteIndex(savingQuoteIndex === i ? null : i)}
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1.5 opacity-70 hover:opacity-100 transition-opacity"
+                          title="Guardar este presupuesto en un cliente"
+                        >
+                          <FileText className="w-3 h-3" />
+                          Guardar en cliente
+                        </button>
+                      </div>
+                    )}
+                    {msg.role === "assistant" && savingQuoteIndex === i && (
+                      <div className="mt-2 flex flex-col gap-2 rounded-lg border border-border bg-background/70 p-2">
+                        <select
+                          value={quoteClientId}
+                          onChange={e => setQuoteClientId(e.target.value)}
+                          className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                        >
+                          <option value="">Selecciona un cliente...</option>
+                          {clientOptions.map(client => <option key={client.id} value={client.id}>{client.name}</option>)}
+                        </select>
+                        <Button size="sm" onClick={() => saveBudgetForClient(msg.content)} disabled={quoteSaving || !quoteClientId} className="h-8 text-xs gap-1">
+                          {quoteSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                          Guardar presupuesto
+                        </Button>
                       </div>
                     )}
                   </div>
